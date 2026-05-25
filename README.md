@@ -183,13 +183,3 @@ CloudDeskAgentOps/
 ├── sql/init.sql           完整建表 + 种子数据 (business + agent schema)
 └── .github/workflows/eval.yml  CI 自动评估回归 · 质量门控
 ```
-
----
-
-## 版本路线
-
-| 版本 | 内容 | 状态 |
-|------|------|------|
-| **V1** | RAG 问答、工具调用、退款审批、Multi-Agent Handoff、短期记忆、Trace 记录 | 已完成 |
-| **V2** | 长期记忆、模型路由、Reranking、Guardrails 四层防线、Eval Dashboard、Prompt 版本管理 | 已完成 |
-| **V3** | MCP 工具服务化、Hybrid Retrieval 增强、完整 RBAC + Audit Log、CI Eval Regression | 进行中 |
