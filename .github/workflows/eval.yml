@@ -1,0 +1,122 @@
+name: Agent Eval Regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend-agent/**'
+  push:
+    branches: [main]
+    paths:
+      - 'backend-agent/**'
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: clouddesk
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/clouddesk
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+      JAVA_SERVICE_URL: http://localhost:8101
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r backend-agent/requirements.txt
+
+      - name: Initialize eval database
+        run: python backend-agent/scripts/init_eval_db.py
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: clouddesk
+
+      - name: Run eval benchmark
+        working-directory: backend-agent
+        run: |
+          python -c "
+          import asyncio, json
+          from app.db.session import SessionLocal
+          from app.evals.run_eval import run_evaluation
+
+          async def main():
+              db = SessionLocal()
+              try:
+                  results = await run_evaluation(db)
+                  aggregate = {
+                      'total': len(results),
+                      'retrieval_hit_rate': sum(1 for r in results if r.get('retrieval_hit')) / max(len(results), 1),
+                      'tool_correct_rate': sum(1 for r in results if r.get('tool_call_correct')) / max(len(results), 1),
+                      'approval_correct_rate': sum(1 for r in results if r.get('approval_routing_correct')) / max(len(results), 1),
+                      'task_success_rate': sum(1 for r in results if r.get('task_success')) / max(len(results), 1),
+                      'details': results,
+                  }
+                  with open('results.json', 'w') as f:
+                      json.dump(aggregate, f, indent=2, ensure_ascii=False)
+              finally:
+                  db.close()
+
+          asyncio.run(main())
+          "
+
+      - name: Report results
+        run: |
+          python -c "
+          import json
+          r = json.load(open('backend-agent/results.json'))
+          print('## Eval Results')
+          print('')
+          print('| 指标 | 结果 | 阈值 |')
+          print('|------|------|------|')
+          print(f'| Retrieval Hit Rate | {r[\"retrieval_hit_rate\"]:.0%} | 60% |')
+          print(f'| Tool Correct Rate | {r[\"tool_correct_rate\"]:.0%} | 60% |')
+          print(f'| Approval Correct Rate | {r[\"approval_correct_rate\"]:.0%} | 80% |')
+          print(f'| Task Success Rate | {r[\"task_success_rate\"]:.0%} | 60% |')
+          " >> $GITHUB_STEP_SUMMARY
+
+      - name: Quality gate
+        run: |
+          python -c "
+          import json, sys
+          r = json.load(open('backend-agent/results.json'))
+          thresholds = {
+              'retrieval_hit_rate': 0.60,
+              'tool_correct_rate': 0.60,
+              'approval_correct_rate': 0.80,
+              'task_success_rate': 0.60,
+          }
+          failed = [k for k, v in thresholds.items() if r.get(k, 0) < v]
+          if failed:
+              print(f'QUALITY GATE FAILED: {failed}')
+              sys.exit(1)
+          print('QUALITY GATE PASSED')
+          "
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: backend-agent/results.json

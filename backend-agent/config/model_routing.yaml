@@ -1,0 +1,25 @@
+tiers:
+  fast:
+    model: deepseek-v4-flash
+    cost_per_1k: 0.001
+    max_latency_ms: 500
+  medium:
+    model: deepseek-v4-pro
+    cost_per_1k: 0.003
+    max_latency_ms: 1500
+  strong:
+    model: deepseek-v4-pro
+    cost_per_1k: 0.01
+    max_latency_ms: 3000
+
+budget:
+  daily_limit_usd: 5.0
+
+task_tier_map:
+  intent_classification: fast
+  entity_extraction: fast
+  policy_qa: medium
+  refund_judgment: medium
+  final_answer: medium
+  compliance_check: strong
+  memory_summarize: fast
